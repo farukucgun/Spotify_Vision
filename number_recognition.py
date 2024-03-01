@@ -6,6 +6,13 @@ from mediapipe.tasks.python import vision
 import config
 import requests
 
+"""
+TODO:
+- Find a more convenient way to get the code and the access token
+- Find a way to bring spotify up
+- Add a way to stop the program
+"""
+
 last_action_time = 0
 spotify_access_token = ""
 
@@ -28,19 +35,10 @@ def calculate_bounding_rect(image, landmarks):
     return [x, y, x + w, y + h]
 
 
-def take_action(spotify_access_token, category_name):
-    print(f"Detected number: {category_name}")
-
-    if category_name == "1":
-        play_song(spotify_access_token, "Somewhere I Belong")
-
-    elif category_name == "2":
-        get_playback_info(spotify_access_token)
-
-
 def login_to_spotify():
     # Get the access token using authorization_code grant type
     print("Logging in to Spotify...")
+
     response = requests.get("https://accounts.spotify.com/authorize", params={ 
         "client_id": config.spotify_client_id,
         "response_type": "code",
@@ -48,18 +46,50 @@ def login_to_spotify():
         "scope": "user-read-playback-state user-modify-playback-state",
     })
 
-    # go to the url, authenticate and get the callback url
+    # Get the authorization code from the URL
+    print(f"Go to the following URL and authorize the app: {response.url}")
+    authorization_code = input("Enter the authorization code: ")
+
+    # Get the access token
+    response = requests.post("https://accounts.spotify.com/api/token", data={
+        "client_id": config.spotify_client_id,
+        "client_secret": config.spotify_client_secret,
+        "grant_type": "authorization_code",
+        "code": authorization_code,
+        "redirect_uri": config.redirect_uri
+    })
+
+    return response.json()["access_token"]
+
+
+def transfer_playback(spotify_access_token):
+    response = requests.put("https://api.spotify.com/v1/me/player", headers=get_auth_header(spotify_access_token), json={ 
+        "device_ids": [config.device_id],
+        # "play": False
+    })
+
+
+def take_action(spotify_access_token, category_name):
+    print(f"Detected number: {category_name}")
+
+    if category_name == "1":
+        play_song(spotify_access_token, "Somewhere I Belong")
+
+    elif category_name == "2":
+        pause_continue_song(spotify_access_token)
+
+    elif category_name == "3":
+        play_playlist(spotify_access_token)
+    
+    elif category_name == "4":
+        previous_song(spotify_access_token)
+
+    elif category_name == "5":
+        next_song(spotify_access_token)
 
 
 def get_auth_header(spotify_access_token):
     return {"Authorization": f"Bearer {spotify_access_token}"}
-
-
-def get_playback_info(spotify_access_token):
-    # Get the playback info
-    response = requests.get("https://api.spotify.com/v1/me/player", headers=get_auth_header(spotify_access_token))
-    print(response.json())
-    return response.json()
 
 
 def play_song(spotify_access_token, song_name):
@@ -69,11 +99,42 @@ def play_song(spotify_access_token, song_name):
     song_uri = response.json()["tracks"]["items"][0]["uri"]
 
     # Play the song
-    res = requests.put("https://api.spotify.com/v1/me/player/play", json={
+    response = requests.put("https://api.spotify.com/v1/me/player/play", headers=get_auth_header(spotify_access_token), json={
         "uris": [song_uri]
-    }, headers=get_auth_header(spotify_access_token))
+    })
 
-    print(res)
+
+def get_playback_info(spotify_access_token):
+    response = requests.get("https://api.spotify.com/v1/me/player", headers=get_auth_header(spotify_access_token))
+
+    return response.json()["is_playing"]
+
+
+def pause_continue_song(spotify_access_token):
+    is_playing = get_playback_info(spotify_access_token)
+
+    if is_playing:
+        response = requests.put("https://api.spotify.com/v1/me/player/pause", headers=get_auth_header(spotify_access_token))
+    else:
+        response = requests.put("https://api.spotify.com/v1/me/player/play", headers=get_auth_header(spotify_access_token))
+
+
+def next_song(spotify_access_token):
+    response = requests.post("https://api.spotify.com/v1/me/player/next", headers=get_auth_header(spotify_access_token))
+
+
+def previous_song(spotify_access_token):
+    response = requests.post("https://api.spotify.com/v1/me/player/previous", headers=get_auth_header(spotify_access_token))
+
+
+def play_playlist(spotify_access_token):
+    response = requests.get("https://api.spotify.com/v1/me/playlists", headers=get_auth_header(spotify_access_token))
+
+    playlist_uri = response.json()["items"][3]["uri"]
+
+    response = requests.put("https://api.spotify.com/v1/me/player/play", headers=get_auth_header(spotify_access_token), json={
+        "context_uri": playlist_uri
+    })
 
 
 def main():
@@ -89,6 +150,7 @@ def main():
     cap = cv2.VideoCapture(0)
 
     spotify_access_token = login_to_spotify()
+    transfer_playback(spotify_access_token)
 
     while True:
         # Read the frame
