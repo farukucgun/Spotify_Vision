@@ -5,12 +5,14 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 import config
 import requests
+import pygame
 
 """
 TODO:
 - Find a more convenient way to get the code and the access token
 - Find a way to bring spotify up
 - Add a way to stop the program
+- ADD THE jupyter notebook used to train the model----------------------------
 """
 
 last_action_time = 0
@@ -146,6 +148,9 @@ def main():
     options = vision.GestureRecognizerOptions(base_options=base_options)
     recognizer = vision.GestureRecognizer.create_from_options(options)
 
+    # Initialize the mixer
+    pygame.mixer.init()
+
     # Start capturing video from the webcam
     cap = cv2.VideoCapture(0)
 
@@ -190,6 +195,10 @@ def main():
                 if score > 0.5 and category_name in config.valid_gestures:
                     # Check if the action timeout has passed
                     if (cv2.getTickCount() - last_action_time) / cv2.getTickFrequency() > config.action_timeout:
+                        # play the confirmation sound
+                        pygame.mixer.music.load(config.confirmation_sound)
+                        pygame.mixer.music.play()
+
                         # Take the action
                         take_action(spotify_access_token, category_name)
 
