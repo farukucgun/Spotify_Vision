@@ -13,6 +13,8 @@ TODO:
 - Find a way to bring spotify up
 - Add a way to stop the program
 - ADD THE jupyter notebook used to train the model----------------------------
+- add some settings like adjusting timeout, changing the sound, somehow changing the gestures?
+- implement logging
 """
 
 last_action_time = 0
