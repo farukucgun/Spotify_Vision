@@ -6,19 +6,23 @@ from mediapipe.tasks.python import vision
 import config
 import requests
 import pygame
+import logging
 
 """
 TODO:
 - Find a more convenient way to get the code and the access token
 - Find a way to bring spotify up
 - Add a way to stop the program
-- ADD THE jupyter notebook used to train the model----------------------------
 - add some settings like adjusting timeout, changing the sound, somehow changing the gestures?
 - implement logging
 """
 
 last_action_time = 0
 spotify_access_token = ""
+
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
 
 
 def calculate_bounding_rect(image, landmarks):
@@ -42,6 +46,7 @@ def calculate_bounding_rect(image, landmarks):
 def login_to_spotify():
     # Get the access token using authorization_code grant type
     print("Logging in to Spotify...")
+    logger.info("Getting the access token using authorization_code grant type")
 
     response = requests.get("https://accounts.spotify.com/authorize", params={ 
         "client_id": config.spotify_client_id,
@@ -63,6 +68,10 @@ def login_to_spotify():
         "redirect_uri": config.redirect_uri
     })
 
+    if response.status_code != 200:
+        logger.error(f"Failed to get the access token: {response.json()}")
+        return
+
     return response.json()["access_token"]
 
 
@@ -72,10 +81,12 @@ def transfer_playback(spotify_access_token):
         # "play": False
     })
 
+    if response.status_code != 204:
+        logger.error(f"Failed to transfer playback: {response.json()}")
+        return
+
 
 def take_action(spotify_access_token, category_name):
-    print(f"Detected number: {category_name}")
-
     if category_name == "1":
         play_song(spotify_access_token, "Somewhere I Belong")
 
@@ -91,6 +102,9 @@ def take_action(spotify_access_token, category_name):
     elif category_name == "5":
         next_song(spotify_access_token)
 
+    else:
+        logger.error(f"Invalid gesture: {category_name}")
+
 
 def get_auth_header(spotify_access_token):
     return {"Authorization": f"Bearer {spotify_access_token}"}
@@ -102,14 +116,26 @@ def play_song(spotify_access_token, song_name):
 
     song_uri = response.json()["tracks"]["items"][0]["uri"]
 
+    if song_uri is None:
+        logger.error(f"Failed to find the song: {song_name}")
+        return
+
     # Play the song
     response = requests.put("https://api.spotify.com/v1/me/player/play", headers=get_auth_header(spotify_access_token), json={
         "uris": [song_uri]
     })
 
+    if response.status_code != 204:
+        logger.error(f"Failed to play the song: {response.json()}")
+        return
+
 
 def get_playback_info(spotify_access_token):
     response = requests.get("https://api.spotify.com/v1/me/player", headers=get_auth_header(spotify_access_token))
+
+    if response.status_code != 200:
+        logger.error(f"Failed to get the playback info: {response.json()}")
+        return
 
     return response.json()["is_playing"]
 
@@ -119,16 +145,33 @@ def pause_continue_song(spotify_access_token):
 
     if is_playing:
         response = requests.put("https://api.spotify.com/v1/me/player/pause", headers=get_auth_header(spotify_access_token))
+
+        if response.status_code != 204:
+            logger.error(f"Failed to pause the song: {response.json()}")
+            return
+        
     else:
         response = requests.put("https://api.spotify.com/v1/me/player/play", headers=get_auth_header(spotify_access_token))
+
+        if response.status_code != 204:
+            logger.error(f"Failed to continue the song: {response.json()}")
+            return
 
 
 def next_song(spotify_access_token):
     response = requests.post("https://api.spotify.com/v1/me/player/next", headers=get_auth_header(spotify_access_token))
 
+    if response.status_code != 204:
+        logger.error(f"Failed to play the next song: {response.json()}")
+        return
+
 
 def previous_song(spotify_access_token):
     response = requests.post("https://api.spotify.com/v1/me/player/previous", headers=get_auth_header(spotify_access_token))
+
+    if response.status_code != 204:
+        logger.error(f"Failed to play the previous song: {response.json()}")
+        return
 
 
 def play_playlist(spotify_access_token):
@@ -136,9 +179,17 @@ def play_playlist(spotify_access_token):
 
     playlist_uri = response.json()["items"][3]["uri"]
 
+    if playlist_uri is None:
+        logger.error("Failed to find the playlist")
+        return
+
     response = requests.put("https://api.spotify.com/v1/me/player/play", headers=get_auth_header(spotify_access_token), json={
         "context_uri": playlist_uri
     })
+
+    if response.status_code != 204:
+        logger.error(f"Failed to play the playlist: {response.json()}")
+        return
 
 
 def main():
@@ -197,6 +248,9 @@ def main():
                 if score > 0.5 and category_name in config.valid_gestures:
                     # Check if the action timeout has passed
                     if (cv2.getTickCount() - last_action_time) / cv2.getTickFrequency() > config.action_timeout:
+
+                        logger.info(f"Detected number: {category_name}")
+
                         # play the confirmation sound
                         pygame.mixer.music.load(config.confirmation_sound)
                         pygame.mixer.music.play()
@@ -211,6 +265,7 @@ def main():
         cv2.imshow('Gesture Recognition', frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
+            logger.info("Exiting the program...")
             break
 
     cap.release()
